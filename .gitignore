@@ -1,0 +1,5 @@
+bridge
+bridge.exe
+store/
+.env
+*.log

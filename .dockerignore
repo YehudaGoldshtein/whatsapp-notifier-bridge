@@ -1,0 +1,6 @@
+bridge.exe
+bridge
+store/
+.git/
+.gitignore
+*.md
