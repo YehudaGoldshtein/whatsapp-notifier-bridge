@@ -316,4 +316,7 @@ func main() {
 	defer cancel()
 	_ = srv.Shutdown(ctx)
 	client.Disconnect()
+	if logCleanup != nil {
+		logCleanup()
+	}
 }

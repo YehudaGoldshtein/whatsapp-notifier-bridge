@@ -1,26 +1,35 @@
-// Package-level structured logger. Writes JSON to stdout today; a later change
-// swaps the handler for a multi-handler that also forwards to Axiom without
-// touching any call sites.
-//
-// Usage:
-//	log.Info("sent_message", "caller", caller, "to", jid, "id", resp.ID)
-//	log.Warn("qr_channel_reopen", "reason", "timeout")
-//	log.Error("sqlstore_failed", "error", err)
-//
-// Keep event names snake_case — they become fields in Axiom / anywhere else
-// we aggregate logs across services.
+// Package-level structured logger. Writes JSON to stdout always; when
+// AXIOM_API_TOKEN is set, also forwards to Axiom via a batching handler.
 package main
 
 import (
 	"log/slog"
 	"os"
+	"strings"
 )
 
-var log *slog.Logger
+var (
+	log        *slog.Logger
+	logCleanup func() // called at process shutdown to drain async log sinks
+)
 
 func init() {
-	handler := slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
+	base := slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
 		Level: slog.LevelInfo,
 	})
+
+	var handler slog.Handler = base
+	token := strings.TrimSpace(os.Getenv("AXIOM_API_TOKEN"))
+	dataset := strings.TrimSpace(os.Getenv("AXIOM_DATASET"))
+	apiURL := strings.TrimSpace(os.Getenv("AXIOM_API_URL"))
+	if apiURL == "" {
+		apiURL = "https://api.axiom.co"
+	}
+	if token != "" && dataset != "" {
+		ax := newAxiomHandler(base, apiURL, token, dataset, "whatsapp-notifier-bridge")
+		handler = ax
+		logCleanup = ax.Close
+	}
+
 	log = slog.New(handler).With("service", "whatsapp-notifier-bridge")
 }
