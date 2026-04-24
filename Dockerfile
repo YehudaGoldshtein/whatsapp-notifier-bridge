@@ -5,7 +5,7 @@ RUN apk add --no-cache build-base sqlite-dev
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
-COPY main.go ./
+COPY *.go ./
 ENV CGO_ENABLED=1
 RUN go build -o /out/bridge ./...
 
