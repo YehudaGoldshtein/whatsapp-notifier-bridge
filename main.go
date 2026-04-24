@@ -50,8 +50,9 @@ func (h *qrHolder) set(code string) { h.mu.Lock(); h.code = code; h.mu.Unlock() 
 func (h *qrHolder) get() string     { h.mu.RLock(); defer h.mu.RUnlock(); return h.code }
 
 type sendRequest struct {
-	Recipient string `json:"recipient"` // phone number in international format, e.g. 972504265054
-	Message   string `json:"message"`
+	Recipient  string `json:"recipient"` // phone number in international format, e.g. 972504265054
+	Message    string `json:"message"`
+	CustomerID string `json:"customer_id,omitempty"` // optional tenant label; echoed to logs
 }
 
 type sendResponse struct {
@@ -133,7 +134,11 @@ func sendHandler(client *whatsmeow.Client) http.HandlerFunc {
 			return
 		}
 		caller, _ := r.Context().Value("caller").(string)
-		log.Info("send_ok", "caller", caller, "to", jid.String(), "id", resp.ID, "bytes", len(req.Message))
+		fields := []any{"caller", caller, "to", jid.String(), "id", resp.ID, "bytes", len(req.Message)}
+		if req.CustomerID != "" {
+			fields = append(fields, "customer_id", req.CustomerID)
+		}
+		log.Info("send_ok", fields...)
 		writeJSON(w, http.StatusOK, sendResponse{OK: true, MessageID: resp.ID})
 	}
 }
