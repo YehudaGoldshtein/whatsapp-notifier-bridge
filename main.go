@@ -133,7 +133,7 @@ func sendHandler(client *whatsmeow.Client) http.HandlerFunc {
 			return
 		}
 		caller, _ := r.Context().Value("caller").(string)
-		fmt.Printf("[send] caller=%s to=%s id=%s bytes=%d\n", caller, jid, resp.ID, len(req.Message))
+		log.Info("send_ok", "caller", caller, "to", jid.String(), "id", resp.ID, "bytes", len(req.Message))
 		writeJSON(w, http.StatusOK, sendResponse{OK: true, MessageID: resp.ID})
 	}
 }
@@ -163,24 +163,24 @@ func runLoginLoop(client *whatsmeow.Client, qr *qrHolder) {
 		if client.Store.ID != nil {
 			if !client.IsConnected() {
 				if err := client.Connect(); err != nil {
-					fmt.Printf("[login] connect: %v — retry in 5s\n", err)
+					log.Warn("login_connect_failed", "error", err.Error(), "retry_in_seconds", 5)
 					time.Sleep(5 * time.Second)
 					continue
 				}
-				fmt.Println("[login] connected with existing session")
+				log.Info("login_connected_existing_session")
 			}
 			qr.set("")
 			return
 		}
 		qrChan, err := client.GetQRChannel(context.Background())
 		if err != nil {
-			fmt.Printf("[login] GetQRChannel: %v — retry in 5s\n", err)
+			log.Warn("login_get_qr_channel_failed", "error", err.Error(), "retry_in_seconds", 5)
 			time.Sleep(5 * time.Second)
 			continue
 		}
 		if !client.IsConnected() {
 			if err := client.Connect(); err != nil {
-				fmt.Printf("[login] connect: %v — retry in 5s\n", err)
+				log.Warn("login_connect_failed", "error", err.Error(), "retry_in_seconds", 5)
 				time.Sleep(5 * time.Second)
 				continue
 			}
@@ -189,15 +189,15 @@ func runLoginLoop(client *whatsmeow.Client, qr *qrHolder) {
 			switch evt.Event {
 			case "code":
 				qr.set(evt.Code)
-				fmt.Println("[qr] new code published at /qr")
+				log.Info("qr_new_code_published")
 			case "success":
 				qr.set("")
-				fmt.Println("[login] success — device linked")
+				log.Info("login_success_device_linked")
 				return
 			case "timeout":
-				fmt.Println("[qr] channel timed out — reopening")
+				log.Info("qr_channel_timed_out_reopening")
 			default:
-				fmt.Printf("[qr] %s\n", evt.Event)
+				log.Info("qr_event", "event", evt.Event)
 			}
 		}
 	}
@@ -255,34 +255,34 @@ func main() {
 	port := envOr("PORT", "8080")
 	tokens := loadAuthTokens()
 	if tokens == nil {
-		fmt.Println("[auth] AUTH_TOKENS unset — API is UNAUTHENTICATED (dev only)")
+		log.Warn("auth_unauthenticated_mode", "note", "AUTH_TOKENS unset — dev only")
 	} else {
 		names := []string{}
 		for _, c := range tokens {
 			names = append(names, c)
 		}
-		fmt.Printf("[auth] %d caller(s) configured: %s\n", len(tokens), strings.Join(names, ", "))
+		log.Info("auth_configured", "caller_count", len(tokens), "callers", strings.Join(names, ","))
 	}
 
 	if err := os.MkdirAll(storeDir, 0o755); err != nil {
-		fmt.Printf("mkdir %s: %v\n", storeDir, err)
+		log.Error("store_dir_mkdir_failed", "path", storeDir, "error", err.Error())
 		os.Exit(1)
 	}
 	dbPath := filepath.Join(storeDir, "whatsmeow.db")
 	dsn := fmt.Sprintf("file:%s?_foreign_keys=on&_pragma=busy_timeout(5000)", dbPath)
 
-	logger := waLog.Stdout("whatsmeow", "INFO", true)
-	container, err := sqlstore.New(context.Background(), "sqlite3", dsn, logger)
+	waLogger := waLog.Stdout("whatsmeow", "INFO", true)
+	container, err := sqlstore.New(context.Background(), "sqlite3", dsn, waLogger)
 	if err != nil {
-		fmt.Printf("sqlstore: %v\n", err)
+		log.Error("sqlstore_new_failed", "error", err.Error())
 		os.Exit(1)
 	}
 	device, err := container.GetFirstDevice(context.Background())
 	if err != nil {
-		fmt.Printf("GetFirstDevice: %v\n", err)
+		log.Error("get_first_device_failed", "error", err.Error())
 		os.Exit(1)
 	}
-	client := whatsmeow.NewClient(device, logger)
+	client := whatsmeow.NewClient(device, waLogger)
 
 	qr := &qrHolder{}
 
@@ -302,16 +302,16 @@ func main() {
 	addr := ":" + port
 	srv := &http.Server{Addr: addr, Handler: mux, ReadHeaderTimeout: 10 * time.Second}
 	go func() {
-		fmt.Printf("[http] listening on %s\n", addr)
+		log.Info("http_listening", "addr", addr)
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			fmt.Printf("server: %v\n", err)
+			log.Error("http_server_error", "error", err.Error())
 		}
 	}()
 
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
 	<-sig
-	fmt.Println("[shutdown] draining…")
+	log.Info("shutdown_draining")
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	_ = srv.Shutdown(ctx)
